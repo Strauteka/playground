@@ -12,6 +12,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -29,8 +30,6 @@ import java.net.InetAddress;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Slf4j
 @RestController
@@ -65,33 +64,32 @@ public class SpringPlaygroundApplication {
                     log.warn("creating Pong " + n);
                     return new Pong("Pong" + n);
                 })
-                .buffer(2)
+                .buffer(2).doOnNext(n -> log.info("Sending {}", n.size()))
                 .doFinally(sign -> log.info("End {}", sign));
     }
 
-    //    flux not printing out anything
-    @Scheduled(fixedRate = 20000, initialDelay = 10000)
+    // Could not successfully cast to List<List<Pong>> or List<Pong>.
+    // As from logs, in Encoding phase, comes in all data
+//    Encoding [[[SpringPlaygroundApplication.Pong(pong=Pong1), SpringPlaygroundApplication.Pong(pong=Pong2)], [Spri (truncated)...]
+    //So maybe you can't cast use bodyToFlux and it should be bodyToMono?
+    @Scheduled(fixedRate = 20000)
     public void ping() {
-        List<Pong[]> block = pingDefault()
-                .bodyToFlux(Pong[].class)
+        pingDefault()
+                .bodyToFlux(new ParameterizedTypeReference<String>(){})
+//                .bodyToFlux(new ParameterizedTypeReference<List<Pong>>(){})
                 .doOnNext(item -> log.info("Flux Next {}", item))
                 .onErrorContinue((a, b) -> log.error("{}/{}", a, b))
-                .collectList()
-                .block();
-        String collect = block.stream().flatMap(Stream::of).map(Pong::toString).collect(Collectors.joining());
-        log.info("Flux result: ({})", collect);
+                .subscribe(n -> log.info("Flux result: {}", n));
     }
 
-    //doOnNext prints only first chunk
-    @Scheduled(fixedRate = 20000)
+
+    @Scheduled(fixedRate = 20000, initialDelay = 10000)
     public void pingMonoBlock() {
-        Pong[][] block = pingDefault()
-                .bodyToMono(Pong[][].class)
+        pingDefault()
+                .bodyToMono(new ParameterizedTypeReference<List<List<Pong>>>(){})
                 .doOnNext(e -> log.info("Mono Next {}", e))
                 .onErrorContinue((a, b) -> log.error("{}/{}", a, b))
-                .block();
-        String collect = Stream.of(block).flatMap(Stream::of).map(Pong::toString).collect(Collectors.joining());
-        log.info("Mono result: {}", collect);
+                .subscribe(n -> log.info("Mono result: {}", n));
     }
 
     private WebClient.ResponseSpec pingDefault() {
